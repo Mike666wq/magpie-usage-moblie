@@ -18,7 +18,6 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.webkit.WebViewTransport
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -141,7 +140,7 @@ class MainActivity : AppCompatActivity() {
         webView.isVerticalScrollBarEnabled = true
         webView.webViewClient = PanelWebViewClient()
         webView.webChromeClient = PanelChromeClient()
-        webView.setDownloadListener(DownloadListener { url, userAgent, contentDisposition, mimeType ->
+        webView.setDownloadListener(DownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
             enqueueDownloadOrRequestPermission(url, userAgent, contentDisposition, mimeType)
         })
         webView.settings.setSupportMultipleWindows(true)
@@ -469,7 +468,7 @@ class MainActivity : AppCompatActivity() {
             resultMsg: android.os.Message,
         ): Boolean {
             if (!isUserGesture) return false
-            val transport = resultMsg.obj as? WebViewTransport ?: return false
+            val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
             val popup = WebView(this@MainActivity).apply {
                 configurePopupWebView(this)
             }
@@ -537,7 +536,7 @@ class MainActivity : AppCompatActivity() {
                     window.destroy()
                 }
             }
-            popup.setDownloadListener(DownloadListener { url, userAgent, disposition, mimeType ->
+            popup.setDownloadListener(DownloadListener { url, userAgent, disposition, mimeType, _ ->
                 enqueueDownloadOrRequestPermission(url, userAgent, disposition, mimeType)
             })
             popup.settings.setSupportMultipleWindows(true)

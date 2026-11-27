@@ -7,6 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Environment
 import android.webkit.CookieManager
+import android.webkit.MimeTypeMap
 import android.webkit.URLUtil
 import android.webkit.WebView
 import android.widget.Toast
@@ -57,13 +58,20 @@ internal object DownloadHandler {
         mimeType: String?,
         panelOrigin: String?,
     ) {
-        val fileName = URLUtil.guessFileName(url, contentDisposition, mimeType)
-        val request = DownloadManager.Request(Uri.parse(url)).apply {
+        val requestUri = Uri.parse(url)
+        val extension = MimeTypeMap.getFileExtensionFromUrl(url)
+        val inferredMimeType = if (extension.isNullOrEmpty()) {
+            null
+        } else {
+            MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension.lowercase())
+        }
+        val resolvedMimeType = mimeType?.takeIf { it.isNotBlank() } ?: inferredMimeType
+        val fileName = URLUtil.guessFileName(url, contentDisposition, resolvedMimeType)
+        val request = DownloadManager.Request(requestUri).apply {
             addRequestHeader("User-Agent", userAgent)
             // DownloadManager uses its own network stack. magpie's page key
             // is an HttpOnly WebView cookie, so forward it explicitly for an
             // authenticated CSV/attachment download.
-            val requestUri = Uri.parse(url)
             val downloadOrigin = try {
                 PanelAddress.parse(url).origin
             } catch (_: IllegalArgumentException) {
@@ -82,7 +90,7 @@ internal object DownloadHandler {
                     }
                 }
             }
-            setMimeType(mimeType ?: URLUtil.guessMimeTypeFromUrl(url))
+            resolvedMimeType?.let { setMimeType(it) }
             setTitle(fileName)
             setDescription(activity.getString(R.string.download_started))
             setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
