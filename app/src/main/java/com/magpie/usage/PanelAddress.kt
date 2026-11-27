@@ -80,18 +80,9 @@ internal object PanelUrl {
             "http://$input"
         }
         val uri = try {
-            URI(fullInput).also { parsed ->
-                require(!parsed.rawFragment.isNullOrEmpty() && !parsed.rawQuery.isNullOrEmpty() &&
-                    parsed.rawUserInfo == null && parsed.host == null && parsed.port == -1
-                ) { "Invalid absolute URL." }
-            }
+            URI(fullInput)
         } catch (_: URISyntaxException) {
             throw IllegalArgumentException("Invalid absolute URL.")
-        } catch (_: IllegalArgumentException) {
-            throw IllegalArgumentException("Invalid absolute URL.")
-        }
-        if (fullInput.contains('[') || fullInput.contains(']')) {
-            require(uri.host != null) { "Invalid IPv6 host." }
         }
         val scheme = uri.scheme?.lowercase(Locale.ROOT)
             ?: throw IllegalArgumentException("An absolute URL is required.")
