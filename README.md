@@ -129,7 +129,7 @@ CI 会读取 tag 和 Gradle 文件并校验：`vX.Y.Z` 必须映射到 `versionN
 - `.github/workflows/android-check.yml`：推送 main 或 PR 时安装 JDK 17 / SDK 35，运行 `:app:testDebugUnitTest :app:assembleDebug`，并把 debug APK 作为 CI 验证产物上传 14 天。它不生成 Release。
 - `.github/workflows/android-release.yml`：`push` 匹配 `vX.Y.Z` tag 时自动运行。
 - `workflow_dispatch` 可手动输入一个**已存在**的 tag；校验仍要求该 tag 指向当前代码且 versionName 匹配。
-- 使用 `setup-java@v4` Temurin 17、`android-actions/setup-android@v3`，安装 `platforms;android-35` 和 `build-tools;35.0.0`。
+- 使用 `setup-java@v4` Temurin 17 和 GitHub runner 自带的 Android SDK，安装 `platforms;android-35` 和 `build-tools;35.0.0`；不再使用会安装废弃 `tools` 包的 `setup-android@v3`。
 - 执行 `./gradlew :app:assembleRelease`，签名配置从环境变量读取。
 - 使用 Build Tools 35.0.0 的 `apksigner verify`，然后创建或更新同名 GitHub Release，并上传 `magpie-usage-vX.Y.Z.apk`。
 

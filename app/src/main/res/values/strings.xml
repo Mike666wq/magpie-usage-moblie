@@ -23,16 +23,4 @@
     <string name="load_error_title">无法打开控制面板</string>
     <string name="load_error_message">请检查网络连接和面板地址后重试。</string>
     <string name="retry">重试</string>
-
-    <color name="error_text">#B3261E</color>
-    <color name="launcher_background">#F4F1EA</color>
-
-    <style name="Theme.MagpieUsage" parent="android:style/Theme.Material.Light.NoActionBar">
-        <item name="android:fontFamily">sans</item>
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowLightNavigationBar">true</item>
-        <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowActionModeOverlay">true</item>
-    </style>
 </resources>
