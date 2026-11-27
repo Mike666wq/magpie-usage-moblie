@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">magpie usage</string>
+
+    <string name="address_title">连接 magpie</string>
+    <string name="address_description">输入网页控制面板地址。可填写不带 key 的地址，也可以粘贴包含 ?k= 的完整登录链接。</string>
+    <string name="address_hint">http://192.168.31.60:3430</string>
+    <string name="open_panel">打开控制面板</string>
+    <string name="address_security_note">只保存地址的 scheme、主机和端口，不保存 key、路径或查询参数。HTTP 仅建议用于受控内网。</string>
+    <string name="default_scheme_added">未填写协议，已按 http:// 处理。</string>
+    <string name="enter_address">请输入控制面板地址。</string>
+    <string name="invalid_address">请输入有效的 HTTP/HTTPS 地址，且不要包含用户名或密码。</string>
+    <string name="change_address">更改地址</string>
+    <string name="clear_data_menu">清除数据</string>
+    <string name="clear_data_title">清除 Cookie 和缓存并重新登录？</string>
+    <string name="clear_data_message">将清除此 WebView 的 Cookie、缓存、表单历史和本地存储，并返回地址页。保存的控制面板地址不会删除；下次打开地址即可重新登录。</string>
+    <string name="clear_data_confirm">清除并重新登录</string>
+    <string name="no_external_app">没有可处理此链接的应用。</string>
+    <string name="download_started">下载已开始，可在系统下载中查看。</string>
+    <string name="download_permission_denied">未授予存储权限，无法保存下载。</string>
+
+    <string name="loading_page">正在加载…</string>
+    <string name="load_error_title">无法打开控制面板</string>
+    <string name="load_error_message">请检查网络连接和面板地址后重试。</string>
+    <string name="retry">重试</string>
+
+    <color name="error_text">#B3261E</color>
+    <color name="launcher_background">#F4F1EA</color>
+
+    <style name="Theme.MagpieUsage" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+</resources>
