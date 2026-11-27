@@ -875,7 +875,7 @@ class MainActivity : AppCompatActivity() {
             if (request.isForMainFrame && isCurrentNavigation(navigation) &&
                 isForCurrentDocument(view, navigation)
             ) {
-                if (errorCode != android.webkit.WebViewClient.ERROR_UNSUPPORTED_SCHEME) {
+                if (error.errorCode != android.webkit.WebViewClient.ERROR_UNSUPPORTED_SCHEME) {
                     showError(navigation)
                 }
             }
@@ -948,7 +948,9 @@ class MainActivity : AppCompatActivity() {
                 ): Boolean {
                     val destination = request.url.toString()
                     val navigation = activeNavigation
-                    if (!isCurrentNavigation(navigation, navigationGeneration)) return@configurePopupWebView
+                    if (navigation == null || !isCurrentNavigation(navigation, navigationGeneration)) {
+                        return true
+                    }
                     val origin = navigation.origin
                     if (NavigationPolicy.isInternalBlank(destination)) {
                         return false
