@@ -10,6 +10,9 @@ on:
 permissions:
   contents: read
 
+env:
+  ANDROID_HOME: /usr/local/lib/android/sdk
+
 concurrency:
   group: android-check-${{ github.ref }}
   cancel-in-progress: true
@@ -30,7 +33,7 @@ jobs:
           java-version: "17"
 
       - name: Install Android SDK packages
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"'
 
       - name: Run JVM tests and build debug APK
         run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug --stacktrace
