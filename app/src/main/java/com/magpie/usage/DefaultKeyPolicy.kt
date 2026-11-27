@@ -2,6 +2,7 @@ package com.magpie.usage
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.security.KeyStore
 import java.security.SecureRandom
@@ -46,7 +47,7 @@ internal object DefaultKeyPolicy {
  */
 internal class DefaultKeyStore(context: Context) {
     private val preferences: SharedPreferences =
-        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        context.getSharedPreferences(MainActivity.PREFERENCES_NAME, Context.MODE_PRIVATE)
 
     fun isPresent(): Boolean = preferences.contains(CIPHERTEXT)
 

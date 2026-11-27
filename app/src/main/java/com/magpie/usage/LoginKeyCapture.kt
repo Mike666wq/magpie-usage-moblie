@@ -14,7 +14,7 @@ import java.net.URLDecoder
 internal object LoginKeyCapture {
     private const val SIGN_IN_PATH = "/_magpie/sign-in"
     private const val INTERFACE_NAME = "MagpieDefaultKey"
-    private const val SCRIPT = """
+    private val SCRIPT = """
         (function () {
           if (window.__magpieDefaultKeyInstalled) return;
           var form = document.querySelector('form[method="post"][action$="/_magpie/sign-in"]');

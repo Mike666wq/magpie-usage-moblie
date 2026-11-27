@@ -126,7 +126,7 @@ internal object PanelBookMigration {
         now: Long = System.currentTimeMillis(),
     ): MigrationResult {
         val existing = PanelBookSerializer.parse(existingJson)
-        val legacy = PanelBookState.normalizeOrigin(legacyOrigin)
+        val legacy = legacyOrigin?.let(PanelBookState::normalizeOrigin)
         if (legacy == null) {
             return MigrationResult(existing ?: PanelBook(emptyList()), changed = existing == null)
         }
