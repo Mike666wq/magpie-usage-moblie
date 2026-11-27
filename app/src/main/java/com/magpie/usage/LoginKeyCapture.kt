@@ -106,9 +106,19 @@ internal object LoginKeyCapture {
         }
         if (back.rawAuthority != null || back.scheme != null || back.rawFragment != null) return null
         val backPath = back.rawPath ?: return null
-        if (backPath.startsWith('/') && backPath.getOrNull(1)?.isWhitespace() == true) return null
-        if (!backPath.startsWith('/') || backPath.startsWith("//") ||
-            backPath.startsWith("/\\") || backPath == SIGN_IN_PATH
+        val decodedPath = try {
+            URLDecoder.decode(backPath.replace("+", "%2B"), "UTF-8")
+        } catch (_: IllegalArgumentException) {
+            return null
+        }
+        val decodedQuery = try {
+            URLDecoder.decode(back.rawQuery.orEmpty().replace("+", "%2B"), "UTF-8")
+        } catch (_: IllegalArgumentException) {
+            return null
+        }
+        if (!isSafeReturnPath(backPath) || !isSafeReturnPath(decodedPath) ||
+            decodedQuery.contains("back=/_magpie/sign-in", ignoreCase = true) ||
+            decodedQuery.contains("%2f_magpie%2fsign-in", ignoreCase = true)
         ) {
             return null
         }
@@ -130,6 +140,13 @@ internal object LoginKeyCapture {
             return null
         }
         return capture.key
+    }
+
+    private fun isSafeReturnPath(path: String): Boolean {
+        if (!path.startsWith('/') || path.startsWith("//") || path.startsWith("/\\")) return false
+        if (path.getOrNull(1)?.isWhitespace() == true) return false
+        val normalized = path.trimEnd('/')
+        return normalized != SIGN_IN_PATH
     }
 
     private fun isCanonicalRootPath(rawPath: String): Boolean =

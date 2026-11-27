@@ -109,15 +109,33 @@ internal object PanelUrl {
         } else {
             null
         }
+        // java.net.URI does not accept non-ASCII hosts. For a Unicode DNS
+        // name, derive the authority host literally and let IDN.toASCII below
+        // normalize it. Bracketed IPv6 keeps the same fallback.
+        val rawAuthorityHost = if (!authority.startsWith('[') && authority.contains(':')) {
+            authority.substringBeforeLast(':')
+        } else {
+            authority
+        }
+        val asciiOrUnicodeHost = rawAuthorityHost
+            .takeIf { it.isNotBlank() && it.matches(Regex("[^\\s/@?#]+")) }
         val host = uri.host?.takeIf { it.isNotBlank() }
             ?: bracketedHost
+            ?: asciiOrUnicodeHost
             ?: throw IllegalArgumentException("A host is required.")
-        val port = if (uri.port >= 0) {
-            uri.port
-        } else if (authority.endsWith(':')) {
-            throw IllegalArgumentException("A port number is required after ':'.")
-        } else {
-            -1
+        val explicitPort = when {
+            authority.startsWith('[') -> authority.substringAfter(']', "").removePrefix(":")
+                .takeIf { it.isNotEmpty() }
+            authority.contains(':') -> authority.substringAfterLast(':')
+                .takeIf { it.isNotEmpty() }
+            else -> null
+        }
+        val port = when {
+            uri.port >= 0 -> uri.port
+            authority.endsWith(':') -> throw IllegalArgumentException("A port number is required after ':'.")
+            explicitPort != null -> explicitPort.toIntOrNull()
+                ?: throw IllegalArgumentException("Invalid port.")
+            else -> -1
         }
         if (port != -1 && port !in 1..65535) {
             throw IllegalArgumentException("The port must be between 1 and 65535.")

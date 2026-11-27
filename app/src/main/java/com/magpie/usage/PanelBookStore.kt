@@ -52,7 +52,7 @@ internal object PanelBookState {
         if (existing == null && book.entries.size >= MAX_ENTRIES) return null
         val entry = PanelEntry(
             origin = origin,
-            label = normalizeLabel(label ?: existing?.label, origin),
+            label = normalizeLabel(label?.takeIf { it.isNotBlank() } ?: existing?.label, origin),
             lastUsedAt = lastUsedAt,
         )
         return PanelBook(
@@ -106,6 +106,7 @@ internal object PanelBookSerializer {
                 )
                 if (entries.size == PanelBookState.MAX_ENTRIES) break
             }
+            if (entriesJson.length() > 0 && entries.isEmpty()) return null
             PanelBook(entries)
         } catch (_: JSONException) {
             null

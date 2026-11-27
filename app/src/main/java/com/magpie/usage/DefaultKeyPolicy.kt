@@ -30,7 +30,11 @@ internal object DefaultKeyPolicy {
         }
         // A full paste with its own k must not be rewritten by the default-key
         // feature; the navigation policy separately confines it to its origin.
-        if (target.origin != panel.origin || target.redirectAfterLoad) return null
+        if (target.origin != panel.origin || target.redirectAfterLoad ||
+            cleanUrl.substringAfter('?', "").contains('#')
+        ) {
+            return null
+        }
         return PanelUrl.withDefaultKey(target.cleanUrl, key)
     }
 
