@@ -2,13 +2,13 @@
 
 Android 上的 magpie 网页控制面板壳。
 
-Usage、Routing、Providers、登录和手机布局都使用 magpie 网页端，不在 App 里重写。v0.3.0 增加导航代次与捕获令牌隔离、明确的加载层和真实进度、网页原生 303 历史清理，以及登录捕获成功后自动跨已保存地址复用同一个 `k`。
+Usage、Routing、Providers、登录和手机布局都使用 magpie 网页端，不在 App 里重写。v0.3.1 修复导航回调身份判断、加载层与超时绑定，并补齐 Activity 重建、外部 intent、后台恢复和抽屉异步状态；保留 v0.3.0 的捕获令牌隔离、网页原生 303 历史清理和真实加载进度。
 
 - 平台：Android 7.0+（minSdk 24）
 - 分发：GitHub Release APK
 - 技术栈：Kotlin + XML + WebView
 - 构建工具：JDK 17、Gradle 8.9、Android Gradle Plugin 8.7.3
-- 当前版本：`0.3.0`（versionCode 4）
+- 当前版本：`0.3.1`（versionCode 5）
 
 ## 使用方式
 
@@ -17,6 +17,7 @@ Usage、Routing、Providers、登录和手机布局都使用 magpie 网页端，
 3. 可继续使用网页原生登录页粘贴 key，也可粘贴带 `?k=` 的完整链接。后者只参与首次请求；网页自己的 303 转到同源干净 URL 后，App 在该页加载完成时清理历史，不再延迟跳转或通过 `about:blank` 重载。
 4. 从屏幕最左边缘向右拖，或点击左侧竖向把手，打开地址簿和设置。只有超过触摸 slop、向右且明显比竖向位移更大的边缘拖动才会接管；普通点击、竖向滚动和左侧普通横向触摸仍交给 WebView。
 5. 每次打开或切换地址都会立即显示不透明加载层，隐藏旧网页，并显示 WebView 的真实加载百分比。超过 45 秒仍未完成时显示超时与重试入口；App 不会主动 `stopLoading`，页面若稍后完成会自动恢复显示。
+6. Activity 真正重建或从后台恢复时，如果导航状态失效、加载层没有对应的导航，或 WebView 回到空文档，会显式重载最近地址；正常页面不会因每次 `onResume` 反复重载。外部再次打开地址时会更新 intent 并回到预填地址表单，不使用旧任务栈状态。
 
 ### 地址簿
 
@@ -39,6 +40,7 @@ Usage、Routing、Providers、登录和手机布局都使用 magpie 网页端，
 - **复用风险**：同一完整权限 key 可完全控制对应实例；发给不同 scheme、主机、端口或服务会直接泄露控制权，HTTP 还会被网络观察者读取。默认关闭和 origin 校验只能减少误用，不能消除主动开启后的风险。
 - 开启「复用」前会显示风险确认。关闭复用后，已保存的 key 仍可供用户重新开启或捕获逻辑使用，但不会自动发送。
 - 清除默认 `k` 会同时关闭复用和登录捕获，但不删除地址簿或 Cookie。
+- 抽屉刷新只在主线程读取 `isPresent()`，文案先显示「已加密保存默认 k」，不在主线程解密；打开抽屉时才在后台线程检测可读性，结果 post 回主线程，并在 Activity 销毁或状态刷新后丢弃过期结果。
 
 ### 登录捕获的范围与回退
 
@@ -57,7 +59,8 @@ Usage、Routing、Providers、登录和手机布局都使用 magpie 网页端，
 - CSV 等附件通过系统 `DownloadManager` 保存到公共 Downloads。只有下载 URL 与当前面板 origin 完全一致时，才显式转发对应 `magpie_web_<port>` HttpOnly Cookie，避免发送到其它站点。
 - Android 9+ 不申请存储权限；Android 7/8 仅在首次实际下载时按需申请旧版 `WRITE_EXTERNAL_STORAGE`，不申请全部文件访问。
 - 主页面断网等错误提供「重试」和「更改地址」；HTTP 401 原生登录页正常显示，不会误报为网络错误。
-- 加载层使用不透明背景覆盖 WebView；`onProgressChanged` 更新真实水平进度和百分比，`onPageFinished` 成功后切换回网页。45 秒超时只显示错误层和重试入口，不主动停止当前请求。
+- 加载层使用不透明背景覆盖 WebView；`onProgressChanged` 只更新当前 `loadingNavigation` 绑定的真实进度。`onPageStarted` 使用回调 URL 判断本次目标，不读取可能仍是旧文档的 `webView.url`；`onPageFinished` 即使完成 URL 不匹配当前 origin，也会按 generation 安全结束加载层，旧 generation 不能影响新页面。45 秒超时只显示错误层和重试入口，不主动停止当前请求。
+- `onSaveInstanceState` 只保存 origin、加载状态、进度、超时/错误标志和导航代数，不保存完整 URL、路径、query 或 `k`。重建后先恢复为不可继续的导航占位，再用新 generation/token 显式重载最近地址；`onNewIntent`、`onResume` 的空页面兜底、抽屉 `reset()` 以及不调用 `pauseTimers()` 的 WebView 生命周期共同避免后台白屏和卡死手势。
 
 > 这里填的是网页控制面板端口，不是 gateway 端口。magpie 网页默认 `3430`，gateway 默认 `3425`。
 
@@ -105,7 +108,7 @@ Wrapper properties 固定了 Gradle 8.9 distribution URL 和 SHA-256。
 sdk.dir=/absolute/path/to/Android/Sdk
 ```
 
-纯 JVM 单测覆盖 URL 兼容、地址簿状态/序列化/迁移、默认 key 追加策略、登录捕获回退地址校验和导航策略。序列化单测通过 `testImplementation("org.json:json:20240303")` 使用 JVM 版 `org.json`，不依赖设备上的 Android stub：
+纯 JVM 单测覆盖 URL 兼容、地址簿状态/序列化/迁移、默认 key 追加策略、登录捕获回退地址校验、导航策略，以及导航状态的后台恢复/代数推进。序列化单测通过 `testImplementation("org.json:json:20240303")` 使用 JVM 版 `org.json`，不依赖设备上的 Android stub：
 
 ```bash
 ./gradlew :app:testDebugUnitTest
@@ -158,15 +161,15 @@ base64 < /secure/path/release.jks | pbcopy
 
 ## Tag 发布
 
-当前版本为 `0.3.0`。发布流程：
+当前版本为 `0.3.1`。发布流程：
 
 1. 更新 `app/build.gradle.kts` 的 `versionName`（如有需要也更新 `versionCode`）。
 2. 提交代码。
 3. 创建并推送语义化 tag，例如：
 
 ```bash
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.3.1
+git push origin v0.3.1
 ```
 
 CI 会读取 tag 和 Gradle 文件并校验：`vX.Y.Z` 必须映射到 `versionName = "X.Y.Z"`，且 checkout commit 必须与 tag 指向一致。此规则不硬编码旧 tag。

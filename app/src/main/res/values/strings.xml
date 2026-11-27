@@ -40,7 +40,7 @@
 
     <string name="default_key_title">默认 k（完整控制权限）</string>
     <string name="default_key_status_none">尚未加密保存默认 k。</string>
-    <string name="default_key_status_saved">已在本机 Keystore 中加密保存默认 k。</string>
+    <string name="default_key_status_saved">已加密保存默认 k。</string>
     <string name="default_key_status_unavailable">默认 k 无法读取，可能已失效；请手动重新保存。</string>
     <string name="reuse_default_key">对已保存地址复用默认 k</string>
     <string name="default_key_warning">警告：这是完整控制权限。复用会把同一个 key 以 ?k= 发给不同的已保存主机，仅适合这些地址确实指向同一个可信 magpie 实例；域名/IP、主机或端口变化都可能暴露凭据。</string>

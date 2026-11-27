@@ -9,6 +9,7 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.widget.SwitchCompat
+import java.util.concurrent.Executors
 import kotlin.math.abs
 
 /** A small native drawer driven by a persistent edge handle and edge swipes. */
@@ -44,6 +45,11 @@ internal class NavigationDrawer(
     private var startX = 0f
     private var startY = 0f
     private var dragStarted = false
+    private var destroyed = false
+    private var refreshGeneration = 0L
+    private val keyReadExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "drawer-key-read")
+    }
 
     init {
         drawer.post { drawerWidth = drawer.width.toFloat().takeIf { it > 0 } ?: 320f }
@@ -76,6 +82,8 @@ internal class NavigationDrawer(
     }
 
     fun refresh() {
+        if (destroyed || activity.isFinishing || activity.isDestroyed) return
+        refreshGeneration += 1L
         panelList.removeAllViews()
         val book = store.book
         savedPanelsLabel.text = if (book.entries.isEmpty()) {
@@ -88,15 +96,13 @@ internal class NavigationDrawer(
             panelList.addView(createRow(entry, entry.origin == current))
         }
 
-        val keyStore = DefaultKeyStore(activity)
-        val hasKey = keyStore.isPresent()
-        val readable = if (hasKey) keyStore.load() != null else true
+        // refresh() runs on the main thread and must never perform Keystore
+        // decryption. isPresent() is a cheap SharedPreferences read; the status
+        // only asserts that an encrypted record exists, not that it can be
+        // decrypted. Opening a saved panel performs the actual fail-closed read.
+        val hasKey = DefaultKeyStore(activity).isPresent()
         defaultKeyStatus.text = activity.getString(
-            when {
-                !hasKey -> R.string.default_key_status_none
-                !readable -> R.string.default_key_status_unavailable
-                else -> R.string.default_key_status_saved
-            },
+            if (hasKey) R.string.default_key_status_saved else R.string.default_key_status_none,
         )
         clearKeyButton.isEnabled = hasKey
         reuseSwitch.isChecked = activity.preferences.getBoolean(DefaultKeyPreferences.REUSE_ENABLED, false)
@@ -106,9 +112,11 @@ internal class NavigationDrawer(
     fun isOpen(): Boolean = visible
 
     fun open() {
-        if (visible) return
+        reset()
+        if (destroyed || visible) return
         visible = true
         refresh()
+        refreshKeyReadability()
         drawer.visibility = View.VISIBLE
         scrim.visibility = View.VISIBLE
         drawer.translationX = 0f
@@ -116,7 +124,57 @@ internal class NavigationDrawer(
         drawer.requestFocus()
     }
 
+    private fun refreshKeyReadability() {
+        if (destroyed || activity.isFinishing || activity.isDestroyed ||
+            !DefaultKeyStore(activity).isPresent()
+        ) {
+            return
+        }
+        val generation = ++refreshGeneration
+        keyReadExecutor.execute {
+            val readable = runCatching { DefaultKeyStore(activity).load() != null }.getOrDefault(false)
+            defaultKeyStatus.post {
+                if (destroyed || generation != refreshGeneration || activity.isFinishing ||
+                    activity.isDestroyed || !DefaultKeyStore(activity).isPresent()
+                ) {
+                    return@post
+                }
+                defaultKeyStatus.text = activity.getString(
+                    if (readable) R.string.default_key_status_saved else R.string.default_key_status_unavailable,
+                )
+            }
+        }
+    }
+
+    /** Cancels a partially dispatched edge gesture without opening/closing the drawer. */
+    fun reset() {
+        val wasDragging = dragStarted
+        trackingGesture = false
+        dragStarted = false
+        refreshGeneration += 1L
+        if (visible) {
+            visible = false
+            scrim.visibility = View.GONE
+            drawer.visibility = View.GONE
+            drawer.translationX = -drawerWidth
+        } else if (wasDragging) {
+            scrim.visibility = View.GONE
+            drawer.visibility = View.GONE
+            drawer.translationX = -drawerWidth
+        }
+    }
+
+    fun onDestroy() {
+        destroyed = true
+        refreshGeneration += 1L
+        reset()
+        keyReadExecutor.shutdownNow()
+    }
+
     fun close() {
+        trackingGesture = false
+        dragStarted = false
+        refreshGeneration += 1L
         if (!visible) return
         visible = false
         scrim.visibility = View.GONE

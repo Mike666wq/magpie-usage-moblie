@@ -4,7 +4,7 @@
 
 App 不重新实现用量、路由或供应商管理，也不调用 gateway API。它保存用户选择的 magpie **网页控制面板 origin 地址簿**，然后用系统 WebView 加载对应页面。网页端已有的手机布局、登录页、用量页和路由页全部保留。
 
-> 仓库名沿用 `magpie-usage-moblie`（原仓库的拼写）；产品名使用 `magpie-usage-mobile`。当前实现版本为 v0.3.0。
+> 仓库名沿用 `magpie-usage-moblie`（原仓库的拼写）；产品名使用 `magpie-usage-mobile`。当前实现版本为 v0.3.1。
 
 ## 目标
 
@@ -126,6 +126,7 @@ https://magpie.example.com
 - `ACTION_MOVE` 只有在最左边缘区域内、向右超过 `scaledTouchSlop` 且 `dx > abs(dy)` 时才开启拖动；竖向占优或反向移动会结束候选。
 - 开始拖动后，抽屉跟随横向位移，松手按位移阈值打开或关闭；`ACTION_CANCEL` 不打开。
 - 普通点击、竖向滚动、非边缘位置和 WebView 自己的左侧横向手势均交还 WebView。该规则仍需真机验证不同 WebView 版本的手势冲突。
+- `NavigationDrawer.reset()` 清理未完成的边缘候选/拖动；Activity 的 `onResume`、`onPause` 和 `open()` 都会调用它。`onPause` 会把未完成的拖动和可见抽屉一起复位，避免后台或手势取消后残留半开状态。
 
 ## 默认 `k` 策略
 
@@ -135,6 +136,7 @@ https://magpie.example.com
 - alias：`magpie_usage_default_key_v1`；transformation：`AES/GCM/NoPadding`；GCM tag：128 bit；每次加密生成新的 128-bit IV。
 - SharedPreferences 只保存格式版本、Base64 IV 和 Base64 密文，不保存明文。
 - Keystore 不可用、密钥失效、版本不符或密文损坏时 `load()` 返回 null，不输出敏感错误。
+- 抽屉 `refresh()` 是主线程 UI 操作，只读取 SharedPreferences 的 `isPresent()`，文案为「已加密保存默认 k」，不在主线程解密。打开抽屉时才通过单线程 Executor 做可读性检测，结果 post 回主线程；`refreshGeneration` 会丢弃刷新后的旧结果，`onDestroy` 会关闭 Executor 并校验 Activity 未销毁。
 - 不开启 Android 自动备份；密钥不随普通数据导出，也不承诺跨设备、卸载重装或恢复后可用。
 
 ### 使用边界
@@ -171,6 +173,7 @@ https://magpie.example.com
 - 只读取该表单中的 key 密码框和隐藏 `back`，不遍历 DOM、其它表单或 URL。
 - submit 必须是 `isTrusted`、未被 `preventDefault`，且由原生提交按钮触发；兼容旧 WebView 时用可信按钮 click 兜底，不依赖 `event.submitter`。
 - 每次打开地址生成独立随机 capture token；JS 回传 token，Kotlin 侧再次要求捕获开关、`CAPTURE_ORIGIN == savedOrigin`、token 匹配、导航代次未变化、key 非空、`path == "/"`。
+- `NavigationState.restore(savedGeneration)` 只恢复代数，返回 `canResume == false` / `isStale == true` 且空 token 的占位导航；`begin()` 推进代数并签发新 token，`bump()` 使当前导航失效。后台恢复和 Activity 重建不能复用旧 WebView 身份。
 - 切换地址、返回地址页、清除数据或开始新导航时，旧 token 立即失效；旧页面回调不能修改新地址的凭据或加载状态。
 - `back` 必须是无 scheme/authority/fragment 的本机绝对路径，不能以 `//`、`/\` 开头，不能回到 `/_magpie/sign-in`。
 - 对 path/query 分段做百分号解码，拒绝编码后的斜杠/反斜杠跨站形式和编码后的登录页回环。
@@ -261,7 +264,18 @@ Android 返回键
 - HTTP 401 是网页原生登录页，不拦截、不替换成 App 错误页。
 - `onReceivedHttpError` 不把 401 当失败；DNS、连接拒绝等主文档错误显示重试层。
 - `onPageStarted/onPageFinished/onProgressChanged/onReceivedError` 都校验当前导航代次和文档身份，旧地址回调不能改变新地址状态。
+- `onPageStarted` 直接把回调 URL 当作本次目标，并组合当前 `navigation.origin`、generation 和 capture token 校验；不读取可能仍是旧文档的 `webView.url`。同源 HTTP(S)、被拦截的跨 origin 重定向及非 HTTP 顶层目标都可以建立本次加载身份；空白页只用于清理，不注入或清理面板历史。
+- `onPageFinished` 先按 generation 安全结束当前主文档加载：即使 URL 不匹配当前 origin，也取消该导航的超时、清错误并显示网页；origin 匹配只决定历史清理和登录捕获注入。旧 generation 的回调直接返回，不能取消新页面的超时或隐藏其加载层。
+- `loadingNavigation` 是显示/隐藏加载层和超时回调的唯一所有者；`onProgressChanged` 只在该导航仍有效且加载层仍绑定时更新进度。新导航会移除旧超时并建立新绑定，`about:blank` 的清理回调不能把新目标永久留在加载层。
 - 错误页不显示敏感 URL。
+
+### 生命周期与后台恢复
+
+- `onSaveInstanceState` 只写 origin、是否加载、进度、超时/错误标志和 generation，不保存完整 URL、路径、query、fragment 或 `k`。
+- `onCreate(savedInstanceState != null)` 先 `restore()` 轻量状态；恢复占位导航不可继续、没有 capture token。没有新外部地址时显式重新打开最近 origin，建立新 generation/token，不依赖旧 WebView 状态。
+- `onNewIntent` 更新 Activity intent，作废旧导航、关闭弹窗并显示预填的新地址表单，避免旧任务栈内容覆盖外部打开目标。
+- `onResume` 在 `activeNavigation == null`、导航 stale、加载层可见但 `loadingNavigation == null`，或 `webView.url` 为空/`about:blank` 且有保存 origin 时重新导航；健康页面不重载。地址表单和异步清数据流程不触发恢复重载。
+- `onResume` 在 `super.onResume()` 后调用 `webView.onResume()`；`onPause`/`onStop` 调用 `webView.onPause()`，从不调用 `pauseTimers()`，以免破坏网页自己的 `fetch` 轮询。`onPause` 同时复位抽屉手势。
 
 ## Android 网络安全配置
 
@@ -347,6 +361,7 @@ GitHub Release APK 是直接分发的安装包，不经过 Google Play。用户�
 - `DefaultKeyPolicyTest`：开关关闭、空 key、不同 origin、已有 k、正确追加与编码、可用性开关。
 - `LoginKeyCaptureTest`：根 path 和同源相对 `back` 校验、跨站/编码绕过、登录页回环拒绝。
 - `NavigationPolicyTest`：顶层同源边界与 scheme 分派。
+- `PanelNavigationTest`：新导航代数/token、失效、旧捕获隔离，以及 `restore`/`bump` 的后台恢复占位状态。
 
 `PanelBookSerializer` 和登录捕获的桥接使用 `org.json`。Android 提供平台实现；JVM 测试通过 `org.json:json:20240303` 提供实现，避免出现 Android stub 的 “Method not mocked” 失败。该依赖仅为 `testImplementation`，不进入 APK。
 
@@ -408,6 +423,15 @@ GitHub Release APK 是直接分发的安装包，不经过 Google Play。用户�
 
 验收：快速切换地址不会串 key 或串加载状态；首次进入有明确加载进度；登录后不再白屏重载；启动器图标在高密度设备清晰。
 
+### 阶段 6（v0.3.1）：回调身份、生命周期与后台恢复
+
+- 页面开始/完成回调使用回调 URL、当前 origin、generation/token，不再依赖旧 `webView.url`。
+- 完成回调按 generation 结束加载，旧代数不影响新页面；超时、进度和加载层显隐绑定当前导航。
+- Activity 重建轻量状态恢复、显式重载、`onNewIntent` 和 `onResume` 空页面兜底。
+- WebView 生命周期不暂停定时器；抽屉 reset 与后台 Keystore 可读性检测。
+
+验收：地址切换不永久白屏；Activity 重建和后台回来能恢复最近地址；正常 `onResume` 不重载；抽屉刷新不阻塞主线程且销毁后不更新 UI。
+
 ## 测试清单
 
 ### 地址簿
@@ -463,6 +487,12 @@ GitHub Release APK 是直接分发的安装包，不经过 Google Play。用户�
 - [ ] 401 不被误报为网络错误。
 - [ ] 打开地址立即显示加载层和进度，不露出旧页面。
 - [ ] 45 秒超时有提示和重试，但不强制中断网页加载。
+- [ ] `onPageStarted` 使用回调 URL，不读取旧 `webView.url`；同源重定向/301 能结束加载层。
+- [ ] 完成 URL 不匹配 origin 时也按 generation 结束加载；旧 generation 不影响新页面。
+- [ ] Activity 重建只恢复轻量状态并显式重载，不恢复完整 URL 或 `k`。
+- [ ] 外部 `onNewIntent` 更新地址表单；后台回来空页面能恢复，正常页面不重复重载。
+- [ ] `onPause`/`onStop` 不调用 `pauseTimers()`，网页轮询继续。
+- [ ] 抽屉刷新主线程只做 `isPresent()`，打开时异步检测可读性，销毁后无 UI 更新。
 - [ ] 快速连续切换地址时，旧地址回调不会串改新地址状态或 key。
 - [ ] 带 `k` 登录后跟随网页 303，不发生额外白屏重载。
 
