@@ -34,7 +34,7 @@ internal object NavigationPolicy {
     /** Returns false when the destination must stay on the configured panel origin. */
     fun isPanelTopLevelUrl(rawUrl: String, panelOrigin: String): Boolean {
         val target = try {
-            PanelAddress.parse(rawUrl)
+            PanelUrl.parse(rawUrl)
         } catch (_: IllegalArgumentException) {
             return false
         }

@@ -1,19 +1,73 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">magpie usage</string>
+    <string name="app_icon">magpie 图标</string>
 
     <string name="address_title">连接 magpie</string>
-    <string name="address_description">输入网页控制面板地址。可填写不带 key 的地址，也可以粘贴包含 ?k= 的完整登录链接。</string>
+    <string name="address_description">输入网页控制面板地址。可填写不带 key 的地址，也可以粘贴包含 ?k= 的完整登录链接。保存后可命名并添加多个地址。</string>
     <string name="address_hint">http://192.168.31.60:3430</string>
-    <string name="open_panel">打开控制面板</string>
-    <string name="address_security_note">只保存地址的 scheme、主机和端口，不保存 key、路径或查询参数。HTTP 仅建议用于受控内网。</string>
+    <string name="open_panel">保存并打开控制面板</string>
+    <string name="address_security_note">地址簿只保存 scheme、主机、端口、名称和最近使用时间，不保存 key、路径或查询参数。HTTP 仅建议用于受控内网。</string>
     <string name="default_scheme_added">未填写协议，已按 http:// 处理。</string>
     <string name="enter_address">请输入控制面板地址。</string>
     <string name="invalid_address">请输入有效的 HTTP/HTTPS 地址，且不要包含用户名或密码。</string>
-    <string name="change_address">更改地址</string>
-    <string name="clear_data_menu">清除数据</string>
+    <string name="address_book">地址簿</string>
+    <string name="address_book_full">地址簿最多保存 50 个地址，请先删除一个。</string>
+    <string name="address_save_failed">地址簿保存失败，请重试。</string>
+    <string name="address_book_empty">还没有保存的地址。可在下方新增，或从地址页粘贴完整登录链接。</string>
+    <string name="saved_panels">已保存地址（最近使用优先）</string>
+    <string name="current_panel">当前</string>
+    <string name="add_panel">新增地址</string>
+    <string name="manage_panels">地址输入页</string>
+    <string name="panel_label_hint">名称（如：家里、公司）</string>
+    <string name="panel_editor_note">只保存 origin、名称和最近使用时间。完整链接里的 ?k= 只用于这一次打开，不写入地址簿。</string>
+    <string name="edit_panel">编辑地址</string>
+    <string name="delete_panel">删除地址</string>
+    <string name="save_panel">保存地址</string>
+    <string name="edit_origin_locked">编辑时不能更改地址。请删除旧地址后重新添加。</string>
+    <string name="panel_already_exists">这个地址已保存在地址簿中，请直接编辑或打开已有项。</string>
+    <string name="delete_panel_title">删除“%1$s”？</string>
+    <string name="delete_panel_message">只删除地址簿中的这一项，不会清除该地址的 Cookie 或缓存。若删除的是当前地址，将回到地址簿。</string>
+    <string name="delete_panel_confirm">删除</string>
+    <string name="last_used_format">最近使用：%1$s</string>
+    <string name="last_used_never">最近使用：尚未打开</string>
+    <string name="last_used_now">刚刚</string>
+    <string name="last_used_minutes">%1$d 分钟前</string>
+    <string name="last_used_hours">%1$d 小时前</string>
+    <string name="last_used_days">%1$d 天前</string>
+    <string name="open_navigation_drawer">打开地址簿和设置</string>
+    <string name="close_navigation_drawer">关闭地址簿和设置</string>
+
+    <string name="default_key_title">默认 k（完整控制权限）</string>
+    <string name="default_key_status_none">尚未加密保存默认 k。</string>
+    <string name="default_key_status_saved">已在本机 Keystore 中加密保存默认 k。</string>
+    <string name="default_key_status_unavailable">默认 k 无法读取，可能已失效；请手动重新保存。</string>
+    <string name="reuse_default_key">对已保存地址复用默认 k</string>
+    <string name="default_key_warning">警告：这是完整控制权限。复用会把同一个 key 以 ?k= 发给不同的已保存主机，仅适合这些地址确实指向同一个可信 magpie 实例；域名/IP、主机或端口变化都可能暴露凭据。</string>
+    <string name="default_key_hint">粘贴 magpie 网页 key</string>
+    <string name="edit_default_key">手动粘贴/更换默认 k</string>
+    <string name="clear_default_key">删除默认 k</string>
+    <string name="save_default_key_title">加密保存默认 k</string>
+    <string name="save_default_key">加密保存</string>
+    <string name="default_key_saved">默认 k 已加密保存。</string>
+    <string name="default_key_save_failed">默认 k 保存失败，请重试。</string>
+    <string name="default_key_required">请先粘贴要保存的 key。</string>
+    <string name="clear_default_key_title">删除默认 k？</string>
+    <string name="clear_default_key_message">将同时关闭复用和登录捕获。地址簿和 WebView Cookie 不受影响。</string>
+    <string name="reuse_enabled_title">允许跨已保存地址复用？</string>
+    <string name="reuse_enabled_message">开启后，App 会把同一个完整权限 key 发给你选择的每个已保存地址。请只保存指向同一可信 magpie 实例的地址。</string>
+    <string name="enable_reuse">了解风险并开启</string>
+    <string name="capture_login_key">登录一次后捕获默认 k</string>
+    <string name="capture_login_key_description">默认关闭。仅在当前已保存 panel origin 的网页原生 401 根登录页注入最小提交监听，不读取其它表单或页面内容。密码框仍由网页处理；捕获成功后会清理历史。自定义部署或网页登录结构变化时可能无法捕获，请使用手动粘贴。</string>
+    <string name="capture_enabled_title">开启本机登录捕获？</string>
+    <string name="capture_enabled_message">捕获仅用于当前已保存地址的原生 magpie 登录页，保存后可用 Keystore AES/GCM 解密。App 不记录或输出 key。你也可以随时关闭并改用网页 Cookie 或手动粘贴。</string>
+    <string name="enable_capture">开启捕获</string>
+    <string name="login_key_captured">登录 key 已捕获并加密保存，正在清理登录历史。</string>
+    <string name="login_key_capture_failed">捕获结果未通过当前面板校验，未保存。</string>
+
+    <string name="clear_data_menu">清除 Cookie 和缓存</string>
     <string name="clear_data_title">清除 Cookie 和缓存并重新登录？</string>
-    <string name="clear_data_message">将清除此 WebView 的 Cookie、缓存、表单历史和本地存储，并返回地址页。保存的控制面板地址不会删除；下次打开地址即可重新登录。</string>
+    <string name="clear_data_message">将清除此 WebView 的 Cookie、缓存、表单历史和本地存储，并返回地址簿。地址簿与默认 k 会保留；下次打开地址，默认 k 仍可能按你的复用设置发送。</string>
     <string name="clear_data_confirm">清除并重新登录</string>
     <string name="no_external_app">没有可处理此链接的应用。</string>
     <string name="download_started">下载已开始，可在系统下载中查看。</string>

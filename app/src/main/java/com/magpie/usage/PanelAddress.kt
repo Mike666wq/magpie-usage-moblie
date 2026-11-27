@@ -11,9 +11,6 @@ import java.net.URLEncoder
 import java.net.UnknownHostException
 import java.util.Locale
 
-private const val PREFERENCES_NAME = "magpie_usage"
-private const val PREFERENCE_ORIGIN = "panel_origin"
-
 /**
  * A navigation target. Only [origin] belongs in persistent storage.
  * [initialUrl] is short-lived. When the user pastes a full sign-in link it
@@ -26,7 +23,26 @@ internal data class PanelTarget(
     val redirectAfterLoad: Boolean,
 )
 
-internal object PanelAddress {
+internal data class PanelEntry(
+    val origin: String,
+    val label: String,
+    val lastUsedAt: Long = 0L,
+)
+
+internal data class PanelBook(
+    val entries: List<PanelEntry>,
+) {
+    val mostRecent: PanelEntry?
+        get() = entries.maxByOrNull { it.lastUsedAt }
+
+    fun find(origin: String): PanelEntry? = entries.firstOrNull { it.origin == origin }
+}
+
+/**
+ * Address parsing is deliberately JVM-only so URL rules can be tested without
+ * a WebView, an Android device, or any keystore-backed secret.
+ */
+internal object PanelUrl {
     private const val SCHEME_SEPARATOR = "://"
     private const val HOST_SEPARATOR = "@"
     private const val PATH_SEPARATOR = '/'
@@ -64,8 +80,14 @@ internal object PanelAddress {
             "http://$input"
         }
         val uri = try {
-            URI(fullInput)
+            URI(fullInput).also { parsed ->
+                require(!parsed.rawFragment.isNullOrEmpty() && !parsed.rawQuery.isNullOrEmpty() &&
+                    parsed.rawUserInfo == null && parsed.host == null && parsed.port == -1
+                ) { "Invalid absolute URL." }
+            }
         } catch (_: URISyntaxException) {
+            throw IllegalArgumentException("Invalid absolute URL.")
+        } catch (_: IllegalArgumentException) {
             throw IllegalArgumentException("Invalid absolute URL.")
         }
         if (fullInput.contains('[') || fullInput.contains(']')) {
@@ -126,26 +148,31 @@ internal object PanelAddress {
         )
     }
 
-    fun storedOrigin(preferences: SharedPreferences): String? {
-        return preferences.getString(PREFERENCE_ORIGIN, null)?.let { stored ->
-            try {
-                parse(stored).origin
-            } catch (_: IllegalArgumentException) {
-                // Do not echo an invalid stored value; it may predate the
-                // origin-only storage contract.
-                null
+    fun usageUrl(origin: String): String = "$origin/?view=usage"
+
+    fun withDefaultKey(cleanUrl: String, key: String?): String? {
+        if (key.isNullOrBlank()) return null
+        // Never replay a key that is already in a URL, and only ever append
+        // to an explicitly selected, clean saved-panel URL.
+        val query = cleanUrl.substringAfter('?', "")
+        if (query.split('&').any { part ->
+                val name = part.substringBefore('=').trim().lowercase(Locale.ROOT)
+                val decodedName = try {
+                    URLDecoder.decode(name, "UTF-8")
+                } catch (_: IllegalArgumentException) {
+                    return null
+                }
+                name == KEY_PARAMETER || decodedName == KEY_PARAMETER
             }
+        ) {
+            return null
+        }
+        return if ('?' in cleanUrl) {
+            "$cleanUrl&$KEY_PARAMETER=${URLEncoder.encode(key, "UTF-8")}"
+        } else {
+            "$cleanUrl?$KEY_PARAMETER=${URLEncoder.encode(key, "UTF-8")}"
         }
     }
-
-    fun saveOrigin(context: Context, origin: String) {
-        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putString(PREFERENCE_ORIGIN, origin)
-            .apply()
-    }
-
-    fun usageUrl(origin: String): String = "$origin/?view=usage"
 
     private fun validatePortSyntax(authority: String) {
         if (authority.startsWith('[')) {
@@ -253,5 +280,30 @@ internal object PanelAddress {
         }
 
         return if (isIpv6) "[$normalized]" else trailingDot
+    }
+}
+
+/** SharedPreferences adapter. The v1 origin is migrated before it is removed. */
+internal object PanelAddress {
+    private const val PREFERENCES_NAME = "magpie_usage"
+    private const val PREFERENCE_ORIGIN = "panel_origin"
+
+    fun storedOrigin(preferences: SharedPreferences): String? {
+        return preferences.getString(PREFERENCE_ORIGIN, null)?.let { stored ->
+            try {
+                PanelUrl.parse(stored).origin
+            } catch (_: IllegalArgumentException) {
+                // Do not echo an invalid stored value; it may predate the
+                // origin-only storage contract.
+                null
+            }
+        }
+    }
+
+    fun saveOrigin(context: Context, origin: String) {
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(PREFERENCE_ORIGIN, origin)
+            .apply()
     }
 }

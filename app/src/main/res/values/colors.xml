@@ -2,4 +2,5 @@
 <resources>
     <color name="launcher_background">#F4F1EA</color>
     <color name="error_text">#B3261E</color>
+    <color name="drawer_selected">#337A5C</color>
 </resources>

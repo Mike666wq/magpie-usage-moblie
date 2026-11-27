@@ -73,7 +73,7 @@ internal object DownloadHandler {
             // is an HttpOnly WebView cookie, so forward it explicitly for an
             // authenticated CSV/attachment download.
             val downloadOrigin = try {
-                PanelAddress.parse(url).origin
+                PanelUrl.parse(url).origin
             } catch (_: IllegalArgumentException) {
                 null
             }
