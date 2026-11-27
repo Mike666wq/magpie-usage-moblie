@@ -5,17 +5,17 @@
 The application and launcher icons include artwork derived from the official
 magpie icon:
 
-- Source: <https://github.com/yetone/magpie/blob/main/site/public/img/icon-256.png>
-- Local source used for this build: `/Users/bbben/Desktop/magpie/magpie/site/public/img/icon-256.png`
+- Source: <https://github.com/yetone/magpie/blob/main/internal/gui/assets/icons/magpie.svg>
 - Project: <https://github.com/yetone/magpie>
 - License: MIT
 
-The image is resized and, for adaptive launcher icons, placed on an
-application-defined background layer and monochrome layer. No endorsement by
+The official SVG path data is rendered as Android VectorDrawable resources for
+the in-app icon, adaptive launcher foreground, and monochrome layer. Legacy
+launcher PNGs are derived from the same official artwork. No endorsement by
 the magpie project is implied.
 
-The copyright notice and license text below are reproduced from
-`/Users/bbben/Desktop/magpie/magpie/LICENSE`.
+The copyright notice and license text below are reproduced from the magpie
+project's `LICENSE` file.
 
 ```text
 MIT License

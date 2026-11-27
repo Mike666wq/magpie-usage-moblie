@@ -14,6 +14,7 @@ import java.net.URLDecoder
 internal object LoginKeyCapture {
     private const val SIGN_IN_PATH = "/_magpie/sign-in"
     private const val INTERFACE_NAME = "MagpieDefaultKey"
+    private const val PASSWORD_TYPE = "password"
     private val SCRIPT = """
         (function () {
           if (window.__magpieDefaultKeyInstalled) return;
@@ -22,22 +23,43 @@ internal object LoginKeyCapture {
           var input = form.querySelector('input[type="password"][name="key"]');
           var back = form.querySelector('input[type="hidden"][name="back"]');
           if (!input || !back) return;
+          var token = {{CAPTURE_TOKEN}};
+          var submitted = false;
           window.__magpieDefaultKeyInstalled = true;
-          form.addEventListener('submit', function (event) {
-            if (!event.isTrusted || event.defaultPrevented ||
-                document.documentElement.getAttribute('data-magpie-key-captured') === '1') return;
+          function captureCurrentForm() {
+            if (submitted || document.documentElement.getAttribute('data-magpie-key-captured') === '1') return;
             var key = input.value;
-            if (!key || event.submitter !== form.querySelector('button[type="submit"]')) return;
+            if (!key) return;
             try {
               JSON.parse(window.MagpieDefaultKey.capture(JSON.stringify({
+                token: token,
                 path: window.location.pathname,
                 key: key,
                 back: back.value
               })));
+              submitted = true;
             } catch (_) {}
+          }
+          // Capture phase works on Android 7 where event.submitter may be
+          // missing. A trusted click records intent but never invokes submit.
+          form.addEventListener('submit', function (event) {
+            if (!event.isTrusted || event.defaultPrevented) return;
+            captureCurrentForm();
+          }, true);
+          form.addEventListener('click', function (event) {
+            if (!event.isTrusted || event.defaultPrevented) return;
+            var target = event.target;
+            while (target && target !== form) {
+              if (target.tagName === 'BUTTON' &&
+                  (target.type || '').toLowerCase() === 'submit') {
+                captureCurrentForm();
+                return;
+              }
+              target = target.parentElement;
+            }
           }, true);
         })();
-    """.trimIndent()
+    """.trimIndent().replace("password", PASSWORD_TYPE)
 
     fun addJavascriptInterface(view: WebView, onCapture: (Capture) -> Unit) {
         view.addJavascriptInterface(
@@ -47,6 +69,7 @@ internal object LoginKeyCapture {
                     val capture = try {
                         val data = JSONObject(encoded)
                         Capture(
+                            token = data.getString("token"),
                             path = data.getString("path"),
                             key = data.getString("key"),
                             back = data.getString("back"),
@@ -66,8 +89,9 @@ internal object LoginKeyCapture {
         url: String?,
         panelOrigin: String?,
         captureEnabled: Boolean = false,
+        token: String? = null,
     ): Boolean {
-        if (!captureEnabled || url == null || panelOrigin == null) return false
+        if (!captureEnabled || token.isNullOrBlank() || url == null || panelOrigin == null) return false
         if (!NavigationPolicy.isPanelTopLevelUrl(url, panelOrigin)) return false
         val path = try {
             URI(url).rawPath?.takeIf { it.isNotEmpty() } ?: "/"
@@ -77,13 +101,13 @@ internal object LoginKeyCapture {
         // Only the canonical root login document is inspected. Subframes,
         // assets and custom non-root deployments are intentionally not scanned.
         if (path != "/") return false
-        // Pass the already-validated origin into the page. Its equality check
-        // fails closed for subframes and any document that later changes origin.
+        // Pass the already-validated origin and per-navigation token into the
+        // page. Origin/top checks fail closed; native acceptance checks token.
         val guardedScript = """
             (function () {
               if (window.origin !== ${JSONObject.quote(panelOrigin)}) return;
               if (window.top !== window.self || window.location.pathname !== '/') return;
-              try { $SCRIPT } catch (_) {}
+              try { ${SCRIPT.replace("{{CAPTURE_TOKEN}}", JSONObject.quote(token))} } catch (_) {}
             })();
         """.trimIndent()
         view.evaluateJavascript(guardedScript, null)
@@ -91,13 +115,16 @@ internal object LoginKeyCapture {
     }
 
     internal data class Capture(
+        val token: String,
         val path: String,
         val key: String,
         val back: String,
     )
 
-    fun accept(capture: Capture, expectedOrigin: String?): String? {
-        if (expectedOrigin == null || capture.key.isBlank()) return null
+    fun accept(capture: Capture, expectedOrigin: String?, expectedToken: String): String? {
+        if (expectedOrigin == null || expectedToken.isBlank()) return null
+        if (capture.token != expectedToken) return null
+        if (capture.key.isBlank()) return null
         if (!isCanonicalRootPath(capture.path)) return null
         val back = try {
             URI(capture.back)

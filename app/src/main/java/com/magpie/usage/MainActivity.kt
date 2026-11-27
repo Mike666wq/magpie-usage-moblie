@@ -23,6 +23,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -44,18 +45,25 @@ class MainActivity : AppCompatActivity() {
     private lateinit var openButton: Button
     private lateinit var webContainer: FrameLayout
     private lateinit var webView: WebView
-    private lateinit var loadingIndicator: LinearLayout
+    private lateinit var loadingIndicator: View
+    private lateinit var loadingProgress: ProgressBar
+    private lateinit var loadingPercent: TextView
     private lateinit var errorPanel: LinearLayout
+    private lateinit var errorTitle: TextView
+    private lateinit var errorMessage: TextView
     private lateinit var panelBookStore: PanelBookStore
     private lateinit var defaultKeyStore: DefaultKeyStore
     private lateinit var navigationDrawer: NavigationDrawer
 
-    private var savedOrigin: String? = null
-    private var redirectAfterLoad = false
-    private var firstLoadCleanUrl: String? = null
-    private var clearingWebData = false
     private var navigationGeneration = 0L
+    private val navigationState = NavigationState()
+    private var activeNavigation: PanelNavigation? = null
+    private var captureToken: String? = null
+    private var loadingNavigation: PanelNavigation? = null
+    private var savedOrigin: String? = null
+    private var clearingWebData = false
     private var pendingLoginCapture: LoginKeyCapture.Capture? = null
+    private val loadingTimeoutRunnable = Runnable { onLoadingTimeout() }
 
     private val backCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() {
@@ -84,7 +92,11 @@ class MainActivity : AppCompatActivity() {
         webContainer = findViewById(R.id.web_container)
         webView = findViewById(R.id.web_view)
         loadingIndicator = findViewById(R.id.loading_indicator)
+        loadingProgress = findViewById(R.id.loading_progress)
+        loadingPercent = findViewById(R.id.loading_percent)
         errorPanel = findViewById(R.id.error_panel)
+        errorTitle = findViewById(R.id.load_error_title)
+        errorMessage = findViewById(R.id.load_error_message)
 
         ViewCompat.setOnApplyWindowInsetsListener(webContainer) { view, insets ->
             val bars = insets.getInsets(
@@ -230,13 +242,13 @@ class MainActivity : AppCompatActivity() {
     private fun clearWebViewDataAndReturnToPanel() {
         val origin = savedOrigin
         if (clearingWebData) return
+        invalidateNavigation()
         clearingWebData = true
-        navigationGeneration++
-        pendingLoginCapture = null
-        val generation = navigationGeneration
-        redirectAfterLoad = false
-        firstLoadCleanUrl = null
         hideError()
+        updateLoadingProgress(0)
+        webView.visibility = View.GONE
+        loadingIndicator.visibility = View.VISIBLE
+        loadingIndicator.bringToFront()
         webView.stopLoading()
         WebViewDataManager.clear(
             webView,
@@ -244,13 +256,10 @@ class MainActivity : AppCompatActivity() {
         ) {
             // removeAllCookies is asynchronous. Ignore a stale callback after
             // another navigation or Activity teardown.
-            if (generation == navigationGeneration && !isFinishing && !isDestroyed) {
-                clearingWebData = false
-                closePopupWebViews()
-                webView.loadUrl("about:blank")
-                webView.clearHistory()
-                showAddressForm(origin)
-            }
+            if (!clearingWebData || isFinishing || isDestroyed) return@clear
+            clearingWebData = false
+            closePopupWebViews()
+            showAddressForm(origin)
         }
     }
 
@@ -286,15 +295,13 @@ class MainActivity : AppCompatActivity() {
         }
         val currentBook = panelBookStore.book
         val existing = currentBook.find(target.origin)
-        val entry = savePanel(
+        val updated = PanelBookState.upsert(
             currentBook,
-            PanelBookState.upsert(
-                currentBook,
-                target.origin,
-                label = existing?.label,
-                lastUsedAt = System.currentTimeMillis(),
-            ),
-        ) ?: return
+            target.origin,
+            label = existing?.label,
+            lastUsedAt = System.currentTimeMillis(),
+        )
+        val entry = savePanel(updated, target.origin) ?: return
         if (!rawInput.trim().contains("://")) {
             Toast.makeText(this, R.string.default_scheme_added, Toast.LENGTH_SHORT).show()
         }
@@ -302,19 +309,16 @@ class MainActivity : AppCompatActivity() {
         openSavedTarget(entry, target)
     }
 
-    private fun savePanel(currentBook: PanelBook, book: PanelBook?): PanelEntry? {
+    private fun savePanel(book: PanelBook?, targetOrigin: String): PanelEntry? {
         if (book == null) {
             Toast.makeText(this, R.string.address_book_full, Toast.LENGTH_LONG).show()
             return null
         }
         return try {
             panelBookStore.save(book)
-            // Return the new/updated row, not whichever row happened to be
-            // most recent before this save. Only an actually changed row is
-            // eligible here, so the target cannot silently fall back.
-            book.entries.firstOrNull { entry ->
-                currentBook.find(entry.origin) != entry
-            } ?: book.mostRecent
+            // Resolve only the explicit target. A newer, unrelated row must
+            // never be selected merely because save() changed recency order.
+            book.find(targetOrigin)
         } catch (_: IllegalStateException) {
             Toast.makeText(this, R.string.address_save_failed, Toast.LENGTH_LONG).show()
             null
@@ -362,26 +366,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openPanel(target: PanelTarget) {
-        navigationGeneration++
-        val generation = navigationGeneration
+        val navigation = navigationState.begin(target.origin)
+        navigationGeneration = navigation.generation
+        activeNavigation = navigation
+        captureToken = navigation.token
+        savedOrigin = target.origin
         pendingLoginCapture = null
-        redirectAfterLoad = target.redirectAfterLoad
-        firstLoadCleanUrl = if (target.redirectAfterLoad) target.cleanUrl else null
         clearingWebData = false
         hideError()
+        showLoading(true)
         showWebView()
 
         // This is the only app-initiated load that may contain a key. It is
-        // neither logged nor persisted; completion clears it and the history.
+        // neither logged nor persisted; the site's own 303 provides the clean
+        // completion document, where clearHistory() removes the keyed history.
         webView.stopLoading()
         webView.loadUrl(target.initialUrl)
-        if (target.redirectAfterLoad) {
-            webView.postDelayed({
-                if (generation == navigationGeneration && redirectAfterLoad) {
-                    finishFirstKeyLoad()
-                }
-            }, FIRST_KEY_HISTORY_GUARD_MS)
-        }
+        armLoadingTimeout(navigation)
     }
 
     private fun retryLoad() {
@@ -392,28 +393,21 @@ class MainActivity : AppCompatActivity() {
         openSavedTarget(entry, PanelUrl.parse(PanelUrl.usageUrl(origin)))
     }
 
-    private fun finishFirstKeyLoad() {
-        if (!redirectAfterLoad) return
-        val origin = savedOrigin ?: return
-        val cleanUrl = firstLoadCleanUrl ?: PanelUrl.usageUrl(origin)
-        navigationGeneration++
-        pendingLoginCapture = null
-        redirectAfterLoad = false
-        firstLoadCleanUrl = null
-
-        webView.stopLoading()
-        webView.loadUrl("about:blank")
-        webView.clearHistory()
-        webView.loadUrl(cleanUrl)
-    }
-
     private fun captureLoginKey(capture: LoginKeyCapture.Capture) {
-        val origin = savedOrigin ?: return
+        val navigation = activeNavigation
+        val token = captureToken ?: return
+        if (navigation == null) return
+        if (!isCurrentNavigation(navigation, navigation.generation)) return
         if (!preferences.getBoolean(DefaultKeyPreferences.CAPTURE_ENABLED, false)) return
-        if (preferences.getString(DefaultKeyPreferences.CAPTURE_ORIGIN, null) != origin) return
-        if (pendingLoginCapture != null) return
-        val key = LoginKeyCapture.accept(capture, origin) ?: return
-        val generation = navigationGeneration
+        if (preferences.getString(DefaultKeyPreferences.CAPTURE_ORIGIN, null) != navigation.origin) return
+        if (capture.token != token) return
+        if (pendingLoginCapture?.token == capture.token) return
+        val origin = navigation.origin
+        val key = LoginKeyCapture.accept(
+            capture,
+            expectedOrigin = origin,
+            expectedToken = token,
+        ) ?: return
         pendingLoginCapture = capture
         val saved = try {
             defaultKeyStore.save(key)
@@ -422,24 +416,67 @@ class MainActivity : AppCompatActivity() {
             false
         }
         webView.post {
-            if (savedOrigin != origin || generation != navigationGeneration) {
-                pendingLoginCapture = null
+            if (!isCurrentNavigation(navigation, navigation.generation) || captureToken != token) {
+                clearPendingCapture(capture.token)
                 return@post
             }
             webView.evaluateJavascript(LoginKeyCapture.acknowledgement(saved), null)
-            pendingLoginCapture = null
-            if (saved) {
-                Toast.makeText(this, R.string.login_key_captured, Toast.LENGTH_LONG).show()
-                navigationGeneration++
-                redirectAfterLoad = true
-                firstLoadCleanUrl = PanelUrl.usageUrl(origin)
-                webView.postDelayed({
-                    if (origin == savedOrigin && redirectAfterLoad) finishFirstKeyLoad()
-                }, FIRST_KEY_HISTORY_GUARD_MS)
-            } else {
+            clearPendingCapture(capture.token)
+            if (!saved) {
                 Toast.makeText(this, R.string.default_key_save_failed, Toast.LENGTH_LONG).show()
+                return@post
             }
+            // Do not navigate or reload here. The form keeps its trusted
+            // submission and the web app performs its own 303 exchange.
+            preferences.edit()
+                .putBoolean(DefaultKeyPreferences.REUSE_ENABLED, true)
+                .apply()
+            DefaultKeyPreferences.setCaptureOrigin(preferences, origin)
+            Toast.makeText(this, R.string.login_key_captured, Toast.LENGTH_LONG).show()
+            navigationDrawer.refresh()
         }
+    }
+
+    private fun clearPendingCapture(token: String) {
+        if (pendingLoginCapture?.token == token) pendingLoginCapture = null
+    }
+
+    private fun invalidateNavigation() {
+        navigationState.invalidate()
+        navigationGeneration = navigationState.generation
+        activeNavigation = null
+        captureToken = null
+        pendingLoginCapture = null
+        loadingNavigation = null
+        loadingIndicator.removeCallbacks(loadingTimeoutRunnable)
+        loadingIndicator.visibility = View.GONE
+    }
+
+    private fun isCurrentNavigation(
+        navigation: PanelNavigation?,
+        callbackGeneration: Long = navigationGeneration,
+    ): Boolean = navigation != null && callbackGeneration == navigation.generation &&
+        callbackGeneration == navigationGeneration && navigationState.isCurrent(navigation) &&
+        !isFinishing && !isDestroyed
+
+    private fun armLoadingTimeout(navigation: PanelNavigation) {
+        loadingNavigation = navigation
+        webView.removeCallbacks(loadingTimeoutRunnable)
+        webView.postDelayed(loadingTimeoutRunnable, LOADING_TIMEOUT_MS)
+    }
+
+    private fun cancelLoadingTimeout() {
+        loadingNavigation = null
+        webView.removeCallbacks(loadingTimeoutRunnable)
+    }
+
+    private fun onLoadingTimeout() {
+        val navigation = loadingNavigation ?: return
+        loadingNavigation = null
+        if (navigationGeneration != navigation.generation || !isCurrentNavigation(navigation)) return
+        // Leave the WebView request running: a slow document may still finish
+        // and recover. The native error layer only offers retry/change address.
+        showError(navigation, timedOut = true)
     }
 
     private fun closePopupWebViews() {
@@ -453,15 +490,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showAddressForm(prefill: String? = null) {
-        navigationGeneration++
-        pendingLoginCapture = null
-        redirectAfterLoad = false
-        firstLoadCleanUrl = null
+        invalidateNavigation()
         DefaultKeyPreferences.setCaptureOrigin(preferences, null)
         webView.stopLoading()
         closePopupWebViews()
         webView.loadUrl("about:blank")
         webView.clearHistory()
+        webView.visibility = View.GONE
+        loadingIndicator.visibility = View.VISIBLE
 
         addressInput.setText("")
         addressError.text = ""
@@ -623,8 +659,9 @@ class MainActivity : AppCompatActivity() {
                     .putBoolean(DefaultKeyPreferences.REUSE_ENABLED, false)
                     .putBoolean(DefaultKeyPreferences.CAPTURE_ENABLED, false)
                     .apply()
+                captureToken = null
+                invalidateNavigation()
                 DefaultKeyPreferences.setCaptureOrigin(preferences, null)
-                pendingLoginCapture = null
                 navigationDrawer.refresh()
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -657,6 +694,7 @@ class MainActivity : AppCompatActivity() {
         if (!enabled) {
             preferences.edit().putBoolean(DefaultKeyPreferences.CAPTURE_ENABLED, false).apply()
             DefaultKeyPreferences.setCaptureOrigin(preferences, null)
+            captureToken = null
             pendingLoginCapture = null
             navigationDrawer.refresh()
             return
@@ -669,13 +707,15 @@ class MainActivity : AppCompatActivity() {
                 savedOrigin?.let { DefaultKeyPreferences.setCaptureOrigin(preferences, it) }
                 navigationDrawer.refresh()
                 if (webContainer.visibility == View.VISIBLE) {
+                    val navigation = activeNavigation
                     val url = webView.url
-                    if (url != null) {
+                    if (navigation != null && isCurrentNavigation(navigation) && url != null) {
                         LoginKeyCapture.injectIfEligible(
                             view = webView,
                             url = url,
-                            panelOrigin = savedOrigin,
+                            panelOrigin = navigation.origin,
                             captureEnabled = true,
+                            token = navigation.token,
                         )
                     }
                 }
@@ -687,24 +727,45 @@ class MainActivity : AppCompatActivity() {
     private fun showWebView() {
         addressForm.visibility = View.GONE
         webContainer.visibility = View.VISIBLE
+        webView.visibility = View.GONE
         backCallback.isEnabled = true
     }
 
     private fun showLoading(isLoading: Boolean) {
-        loadingIndicator.visibility = if (isLoading && errorPanel.visibility != View.VISIBLE) {
-            View.VISIBLE
+        if (isLoading) {
+            updateLoadingProgress(0)
+            errorPanel.visibility = View.GONE
+            webView.visibility = View.GONE
+            loadingIndicator.visibility = View.VISIBLE
+            loadingIndicator.bringToFront()
         } else {
-            View.GONE
+            cancelLoadingTimeout()
+            loadingIndicator.visibility = View.GONE
+            if (errorPanel.visibility != View.VISIBLE) webView.visibility = View.VISIBLE
         }
     }
 
-    private fun showError() {
-        navigationGeneration++
+    private fun updateLoadingProgress(progress: Int) {
+        val normalized = progress.coerceIn(0, 100)
+        loadingProgress.progress = normalized
+        loadingPercent.text = getString(R.string.loading_percent, normalized)
+    }
+
+    private fun showError(navigation: PanelNavigation, timedOut: Boolean = false) {
+        if (!isCurrentNavigation(navigation)) return
+        captureToken = null
         pendingLoginCapture = null
-        redirectAfterLoad = false
-        firstLoadCleanUrl = null
+        cancelLoadingTimeout()
         loadingIndicator.visibility = View.GONE
+        webView.visibility = View.GONE
+        errorTitle.setText(
+            if (timedOut) R.string.load_error_timeout_title else R.string.load_error_title,
+        )
+        errorMessage.setText(
+            if (timedOut) R.string.load_timeout_message else R.string.load_error_message,
+        )
         errorPanel.visibility = View.VISIBLE
+        errorPanel.bringToFront()
     }
 
     private fun hideError() {
@@ -728,7 +789,15 @@ class MainActivity : AppCompatActivity() {
             request: WebResourceRequest,
         ): Boolean {
             val url = request.url.toString()
-            val origin = savedOrigin
+            val navigation = activeNavigation
+            if (!request.isForMainFrame || navigation == null ||
+                navigationGeneration != navigation.generation ||
+                !isCurrentNavigation(navigation) ||
+                isForCurrentDocument(view, navigation)
+            ) {
+                return false
+            }
+            val origin = navigation.origin
 
             if (NavigationPolicy.forUrl(url) == NavigationAction.OPEN_EXTERNALLY) {
                 ExternalNavigator.open(this@MainActivity, url)
@@ -736,9 +805,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             val internalBlank = NavigationPolicy.isInternalBlank(url)
-            if (request.isForMainFrame &&
-                !internalBlank &&
-                origin != null &&
+            if (!internalBlank && origin.isNotBlank() &&
                 !NavigationPolicy.isPanelTopLevelUrl(url, origin)
             ) {
                 return true
@@ -748,19 +815,45 @@ class MainActivity : AppCompatActivity() {
 
         override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
             super.onPageStarted(view, url, favicon)
+            val navigation = activeNavigation ?: return
+            if (!isCurrentNavigation(navigation, navigationGeneration) ||
+                !isForCurrentDocument(view, navigation)
+            ) return
             if (!url.isNullOrBlank() && !isInternalBlank(url)) {
                 showLoading(true)
+                armLoadingTimeout(navigation)
             }
         }
 
         override fun onPageFinished(view: WebView, url: String?) {
             super.onPageFinished(view, url)
+            val navigation = activeNavigation ?: return
+            if (!isCurrentNavigation(navigation, navigationGeneration) ||
+                !isForCurrentDocument(view, navigation)
+            ) return
+            if (url.isNullOrBlank() || isInternalBlank(url)) return
+            if (loadingNavigation == navigation) cancelLoadingTimeout()
+            errorPanel.visibility = View.GONE
             showLoading(false)
-            val targetOrigin = savedOrigin
-            val completedHttpPanel = url != null && targetOrigin != null &&
-                NavigationPolicy.isPanelTopLevelUrl(url, targetOrigin)
-            if (completedHttpPanel &&
-                preferences.getBoolean(DefaultKeyPreferences.CAPTURE_ENABLED, false) &&
+
+            val targetOrigin = navigation.origin
+            if (!NavigationPolicy.isPanelTopLevelUrl(url, targetOrigin)) return
+            val path = try {
+                java.net.URI(url).rawPath?.takeIf { it.isNotEmpty() } ?: "/"
+            } catch (_: java.net.URISyntaxException) {
+                return
+            }
+            // The web app's 303 returns to a key-free URL. Only that successful
+            // same-origin completion clears history; never force another load.
+            val hasKey = try {
+                android.net.Uri.parse(url).getQueryParameter("k") != null
+            } catch (_: IllegalArgumentException) {
+                true
+            }
+            if (path == "/" && !hasKey) {
+                view.clearHistory()
+            }
+            if (preferences.getBoolean(DefaultKeyPreferences.CAPTURE_ENABLED, false) &&
                 preferences.getString(DefaultKeyPreferences.CAPTURE_ORIGIN, null) == targetOrigin
             ) {
                 LoginKeyCapture.injectIfEligible(
@@ -768,10 +861,8 @@ class MainActivity : AppCompatActivity() {
                     url = url,
                     panelOrigin = targetOrigin,
                     captureEnabled = true,
+                    token = navigation.token,
                 )
-            }
-            if (redirectAfterLoad && completedHttpPanel) {
-                finishFirstKeyLoad()
             }
         }
 
@@ -780,8 +871,13 @@ class MainActivity : AppCompatActivity() {
             request: WebResourceRequest,
             error: WebResourceError,
         ) {
-            if (request.isForMainFrame) {
-                showError()
+            val navigation = activeNavigation ?: return
+            if (request.isForMainFrame && isCurrentNavigation(navigation) &&
+                isForCurrentDocument(view, navigation)
+            ) {
+                if (errorCode != android.webkit.WebViewClient.ERROR_UNSUPPORTED_SCHEME) {
+                    showError(navigation)
+                }
             }
         }
 
@@ -790,11 +886,22 @@ class MainActivity : AppCompatActivity() {
             request: WebResourceRequest,
             errorResponse: WebResourceResponse,
         ) {
-            // HTTP 401 is the panel's native key-login page, not a network error.
+            // HTTP 401 is the panel's native key-login page, not a network
+            // error. Other HTTP errors are also allowed to render their own
+            // document; only transport/main-frame errors show the retry layer.
         }
     }
 
     private inner class PanelChromeClient : WebChromeClient() {
+        override fun onProgressChanged(view: WebView, newProgress: Int) {
+            val navigation = activeNavigation
+            if (navigation != null && isCurrentNavigation(navigation, navigation.generation) &&
+                loadingIndicator.visibility == View.VISIBLE
+            ) {
+                updateLoadingProgress(newProgress)
+            }
+        }
+
         override fun onCreateWindow(
             view: WebView,
             isDialog: Boolean,
@@ -840,6 +947,9 @@ class MainActivity : AppCompatActivity() {
                     request: WebResourceRequest,
                 ): Boolean {
                     val destination = request.url.toString()
+                    val navigation = activeNavigation
+                    if (!isCurrentNavigation(navigation, navigationGeneration)) return@configurePopupWebView
+                    val origin = navigation.origin
                     if (NavigationPolicy.isInternalBlank(destination)) {
                         return false
                     }
@@ -854,7 +964,7 @@ class MainActivity : AppCompatActivity() {
                             } catch (_: IllegalArgumentException) {
                                 return true
                             }
-                            if (!sameOrigin(target.origin, savedOrigin)) {
+                            if (!sameOrigin(target.origin, origin)) {
                                 ExternalNavigator.open(this@MainActivity, destination)
                                 true
                             } else {
@@ -879,13 +989,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun sameOrigin(first: String, second: String?): Boolean = first == second
 
+    private fun isForCurrentDocument(view: WebView, navigation: PanelNavigation): Boolean {
+        if (view !== webView) return false
+        // about:blank is used only to leave the address form. It carries no
+        // previous document's completion or error callbacks.
+        if (webView.url == null || isInternalBlank(webView.url)) return false
+        return webView.url?.let { NavigationPolicy.isPanelTopLevelUrl(it, navigation.origin) } == true
+    }
+
     private fun isInternalBlank(url: String?): Boolean =
         url != null && NavigationPolicy.isInternalBlank(url)
 
     override fun onDestroy() {
-        navigationGeneration++
-        pendingLoginCapture = null
-        firstLoadCleanUrl = null
+        invalidateNavigation()
         webView.stopLoading()
         val childCount = webContainer.childCount
         for (index in childCount - 1 downTo 0) {
@@ -899,6 +1015,6 @@ class MainActivity : AppCompatActivity() {
     companion object {
         internal const val PREFERENCES_NAME = "magpie_usage"
         private const val ACTION_VIEW = "android.intent.action.VIEW"
-        private const val FIRST_KEY_HISTORY_GUARD_MS = 1_500L
+        private const val LOADING_TIMEOUT_MS = 45_000L
     }
 }

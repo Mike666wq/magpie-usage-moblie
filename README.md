@@ -2,20 +2,21 @@
 
 Android 上的 magpie 网页控制面板壳。
 
-Usage、Routing、Providers、登录和手机布局都使用 magpie 网页端，不在 App 里重写。v0.2.0 增加多地址簿、左侧边缘手势打开的原生抽屉、默认 `k` 和受限登录捕获；完整带 `k` 链接的首次兑换仍只用于该次导航。
+Usage、Routing、Providers、登录和手机布局都使用 magpie 网页端，不在 App 里重写。v0.3.0 增加导航代次与捕获令牌隔离、明确的加载层和真实进度、网页原生 303 历史清理，以及登录捕获成功后自动跨已保存地址复用同一个 `k`。
 
 - 平台：Android 7.0+（minSdk 24）
 - 分发：GitHub Release APK
 - 技术栈：Kotlin + XML + WebView
 - 构建工具：JDK 17、Gradle 8.9、Android Gradle Plugin 8.7.3
-- 当前版本：`0.2.0`（versionCode 3）
+- 当前版本：`0.3.0`（versionCode 4）
 
 ## 使用方式
 
 1. 从 GitHub Release 下载并安装 APK。
 2. 输入控制面板地址，例如 `http://192.168.31.60:3430`，保存后直接打开；未写 scheme 时按 `http://` 处理并提示。
-3. 可继续使用网页原生登录页粘贴 key，也可粘贴带 `?k=` 的完整链接。后者只参与首次请求，完成后 App 切到不带 `k` 的 `/?view=usage` 并清理历史。
+3. 可继续使用网页原生登录页粘贴 key，也可粘贴带 `?k=` 的完整链接。后者只参与首次请求；网页自己的 303 转到同源干净 URL 后，App 在该页加载完成时清理历史，不再延迟跳转或通过 `about:blank` 重载。
 4. 从屏幕最左边缘向右拖，或点击左侧竖向把手，打开地址簿和设置。只有超过触摸 slop、向右且明显比竖向位移更大的边缘拖动才会接管；普通点击、竖向滚动和左侧普通横向触摸仍交给 WebView。
+5. 每次打开或切换地址都会立即显示不透明加载层，隐藏旧网页，并显示 WebView 的真实加载百分比。超过 45 秒仍未完成时显示超时与重试入口；App 不会主动 `stopLoading`，页面若稍后完成会自动恢复显示。
 
 ### 地址簿
 
@@ -28,7 +29,7 @@ Usage、Routing、Providers、登录和手机布局都使用 magpie 网页端，
 
 ### 默认 `k`（完整控制权限）
 
-默认 `k` 和复用功能都默认关闭。手动保存或捕获成功后不会自动开启复用。
+默认 `k` 和复用功能都默认关闭。手动保存不会自动开启复用；**登录捕获成功后会自动开启 `REUSE_ENABLED`**，把同一个捕获值用于之后选择的已保存地址。
 
 - 密钥通过 **Android Keystore 的 AES-256-GCM** 加密，alias 为 `magpie_usage_default_key_v1`；SharedPreferences 只存格式版本、随机 IV 和密文，不存明文。
 - Keystore 被系统删除、备份/恢复后不可解密或记录损坏时，读取会失败关闭；请手动重新保存。App 不崩溃、不输出密钥。
@@ -41,12 +42,13 @@ Usage、Routing、Providers、登录和手机布局都使用 magpie 网页端，
 
 ### 登录捕获的范围与回退
 
-- 「登录一次后捕获默认 k」默认关闭；只对**当前已保存 panel origin** 生效。
+- 「登录一次后捕获默认 k」默认关闭；只对**当前已保存 panel origin** 生效。开启确认文案明确说明：捕获后会加密保存，并自动用于之后选择的已保存地址（跨主机复用）。
 - 只在顶层、规范根路径 `/` 的 magpie 原生 401 登录文档注入最小提交监听；页内脚本还会检查 `window.origin` 与已保存 origin 相同，且 `window.top === window.self`。其它页面、其它路径、子 frame、跨源 frame 和弹窗不注入。
-- 只识别原生 POST `/_magpie/sign-in` 表单里的 key 密码框和隐藏 `back`，不读取其它表单或页面内容。捕获还要求可信 submit 事件和原生提交按钮。
+- 每次 `openPanel` 都有新的导航代次和随机 `captureToken`；旧页面的回调、旧 JS 消息和切换地址后的迟到保存结果均被拒绝。切换地址会立即让旧 token 失效。
+- 只识别原生 POST `/_magpie/sign-in` 表单里的 key 密码框和隐藏 `back`，不读取其它表单或页面内容。使用 capture 阶段 submit 监听，并以可信的原生 submit 按钮 click 兜底，兼容 Android 7/旧 WebView 缺失 `event.submitter` 的情况；脚本与 native 按 token 去重。
 - 原生提交后的 `back` 必须是本机相对路径、无 authority/scheme/fragment，并拒绝编码后的跨站斜杠、反斜杠和登录页回环；`path` 必须是 `/`。
 - 网页结构变化、自定义非根部署、关闭开关、切换地址、Keystore 失败或校验失败时，不保存捕获值，也不阻止网页自身登录。可继续用 Cookie，或从抽屉手动粘贴默认 `k`。
-- App 不记录、持久化或输出捕获的明文 key；成功后会尝试清理首次登录历史。
+- App 不记录、持久化或输出捕获的明文 key。保存成功后只加密保存、显示 acknowledgement、自动开启复用并刷新抽屉，不强制导航或重载；网页自行提交并通过 303 登录，干净同源页完成后清理历史。
 
 ### Cookie、下载与错误
 
@@ -54,7 +56,8 @@ Usage、Routing、Providers、登录和手机布局都使用 magpie 网页端，
 - 为兼容页面资源，WebView 接受第三方 Cookie；这会扩大网页生态的凭据暴露面。建议仅访问可信面板，公网优先使用 HTTPS。
 - CSV 等附件通过系统 `DownloadManager` 保存到公共 Downloads。只有下载 URL 与当前面板 origin 完全一致时，才显式转发对应 `magpie_web_<port>` HttpOnly Cookie，避免发送到其它站点。
 - Android 9+ 不申请存储权限；Android 7/8 仅在首次实际下载时按需申请旧版 `WRITE_EXTERNAL_STORAGE`，不申请全部文件访问。
-- 主页面断网等错误提供「重试」和「更改地址」，HTTP 401 原生登录页不会误报为网络错误。
+- 主页面断网等错误提供「重试」和「更改地址」；HTTP 401 原生登录页正常显示，不会误报为网络错误。
+- 加载层使用不透明背景覆盖 WebView；`onProgressChanged` 更新真实水平进度和百分比，`onPageFinished` 成功后切换回网页。45 秒超时只显示错误层和重试入口，不主动停止当前请求。
 
 > 这里填的是网页控制面板端口，不是 gateway 端口。magpie 网页默认 `3430`，gateway 默认 `3425`。
 
@@ -70,7 +73,7 @@ App 保留当前 panel origin 的顶层信任边界：
 
 ## 应用图标与许可
 
-应用内图标和启动器图标来自 magpie 官方图标：
+应用内图标、启动器 foreground 和 monochrome 图标直接由 magpie 官方 SVG 的 `pathData` 生成 VectorDrawable；地址页、抽屉、加载层与地址行均使用矢量图标。启动器保留旧版 PNG 图标。
 
 <https://github.com/yetone/magpie/blob/main/site/public/img/icon-256.png>
 
@@ -155,15 +158,15 @@ base64 < /secure/path/release.jks | pbcopy
 
 ## Tag 发布
 
-当前版本为 `0.2.0`。发布流程：
+当前版本为 `0.3.0`。发布流程：
 
 1. 更新 `app/build.gradle.kts` 的 `versionName`（如有需要也更新 `versionCode`）。
 2. 提交代码。
 3. 创建并推送语义化 tag，例如：
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 CI 会读取 tag 和 Gradle 文件并校验：`vX.Y.Z` 必须映射到 `versionName = "X.Y.Z"`，且 checkout commit 必须与 tag 指向一致。此规则不硬编码旧 tag。
