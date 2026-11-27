@@ -49,7 +49,9 @@ class PanelBookStateTest {
         assertEquals("家里", updated.find("https://example.com")?.label)
         assertEquals(30L, updated.find("https://example.com")?.lastUsedAt)
         assertEquals("公司", updated.find("https://other.example.com")?.label)
-        assertEquals(other, original)
+        assertEquals(1, original.entries.size)
+        assertEquals("家里", original.entries.single().label)
+        assertEquals(10L, original.entries.single().lastUsedAt)
     }
 
     @Test

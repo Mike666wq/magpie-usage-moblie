@@ -116,9 +116,8 @@ internal object LoginKeyCapture {
         } catch (_: IllegalArgumentException) {
             return null
         }
-        if (!isSafeReturnPath(backPath) || !isSafeReturnPath(decodedPath) ||
-            decodedQuery.contains("back=/_magpie/sign-in", ignoreCase = true) ||
-            decodedQuery.contains("%2f_magpie%2fsign-in", ignoreCase = true)
+        if (!isSafeReturnPath(backPath) ||
+            !isSafeQuery(decodedQuery)
         ) {
             return null
         }
@@ -143,10 +142,38 @@ internal object LoginKeyCapture {
     }
 
     private fun isSafeReturnPath(path: String): Boolean {
-        if (!path.startsWith('/') || path.startsWith("//") || path.startsWith("/\\")) return false
-        if (path.getOrNull(1)?.isWhitespace() == true) return false
-        val normalized = path.trimEnd('/')
-        return normalized != SIGN_IN_PATH
+        var candidate = path
+        repeat(4) {
+            if (!candidate.startsWith('/') || candidate.startsWith("//") || candidate.startsWith("/\\")) {
+                return false
+            }
+            if (candidate.getOrNull(1)?.isWhitespace() == true) return false
+            if (candidate.trimEnd('/') == SIGN_IN_PATH) return false
+            candidate = try {
+                URLDecoder.decode(candidate.replace("+", "%2B"), "UTF-8")
+            } catch (_: IllegalArgumentException) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private fun isSafeQuery(query: String): Boolean {
+        var candidate = query
+        repeat(4) {
+            if (candidate.contains("back=/_magpie/sign-in", ignoreCase = true) ||
+                candidate.contains("back=/%5Fmagpie/sign-in", ignoreCase = true) ||
+                candidate.contains("back=/%255Fmagpie/sign-in", ignoreCase = true)
+            ) {
+                return false
+            }
+            candidate = try {
+                URLDecoder.decode(candidate.replace("+", "%2B"), "UTF-8")
+            } catch (_: IllegalArgumentException) {
+                return false
+            }
+        }
+        return true
     }
 
     private fun isCanonicalRootPath(rawPath: String): Boolean =
