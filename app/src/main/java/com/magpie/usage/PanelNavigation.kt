@@ -42,7 +42,8 @@ internal class NavigationState {
      * deliberately never part of this API.
      */
     fun restore(savedGeneration: Long): PanelNavigation {
-        generation = savedGeneration.coerceAtLeast(0L)
+        invalidate()
+        generation = generation.coerceAtLeast(savedGeneration.coerceAtLeast(0L))
         return PanelNavigation(
             origin = "",
             generation = generation,

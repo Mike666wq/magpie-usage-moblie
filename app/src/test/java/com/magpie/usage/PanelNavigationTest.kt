@@ -64,8 +64,8 @@ class PanelNavigationTest {
 
         val restored = state.restore(old.generation)
 
-        assertEquals(old.generation, state.generation)
-        assertEquals(old.generation, restored.generation)
+        assertTrue(state.generation > old.generation)
+        assertTrue(restored.generation > old.generation)
         assertTrue(restored.isStale)
         assertFalse(restored.canResume)
         assertTrue(restored.token.isEmpty())
@@ -114,10 +114,10 @@ class PanelNavigationTest {
 
         val restored = state.restore(-1L)
 
-        assertEquals(0L, restored.generation)
+        assertEquals(1L, restored.generation)
         assertTrue(restored.isStale)
         val current = state.begin("https://first.example")
-        assertEquals(1L, current.generation)
+        assertEquals(2L, current.generation)
         assertTrue(current.canResume)
         assertTrue(state.isCurrent(current))
     }
