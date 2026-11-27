@@ -9,16 +9,13 @@ internal enum class NavigationAction {
 internal object NavigationPolicy {
     fun isInternalBlank(rawUrl: String): Boolean {
         val normalized = rawUrl.trim()
-        if (normalized.isEmpty()) return false
-        val uri = try {
-            java.net.URI(normalized)
-        } catch (_: java.net.URISyntaxException) {
+        val separator = normalized.indexOf(':')
+        if (separator <= 0) return false
+        if (!normalized.substring(0, separator).equals("about", ignoreCase = true)) {
             return false
         }
-        val target = uri.rawSchemeSpecificPart
-        return uri.scheme.equals("about", ignoreCase = true) &&
-            (target.isEmpty() || target.equals("blank", ignoreCase = true)) &&
-            uri.rawQuery == null && uri.rawFragment == null
+        val target = normalized.substring(separator + 1)
+        return target.isEmpty() || target.equals("blank", ignoreCase = true)
     }
 
     fun forUrl(rawUrl: String): NavigationAction {

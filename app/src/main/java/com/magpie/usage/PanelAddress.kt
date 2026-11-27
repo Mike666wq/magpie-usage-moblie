@@ -68,6 +68,9 @@ internal object PanelAddress {
         } catch (_: URISyntaxException) {
             throw IllegalArgumentException("Invalid absolute URL.")
         }
+        if (fullInput.contains('[') || fullInput.contains(']')) {
+            require(uri.host != null) { "Invalid IPv6 host." }
+        }
         val scheme = uri.scheme?.lowercase(Locale.ROOT)
             ?: throw IllegalArgumentException("An absolute URL is required.")
 
@@ -86,16 +89,30 @@ internal object PanelAddress {
         }
         validatePortSyntax(authority)
 
+        // java.net.URI leaves the host null for some syntactically complete
+        // bracketed IPv6 authorities. Parse those from the authority itself.
+        val bracketedHost = if (authority.startsWith('[')) {
+            authority.substringAfter('[').substringBefore(']').takeIf { it.isNotBlank() }
+        } else {
+            null
+        }
         val host = uri.host?.takeIf { it.isNotBlank() }
+            ?: bracketedHost
             ?: throw IllegalArgumentException("A host is required.")
-        val port = uri.port
+        val port = if (uri.port >= 0) {
+            uri.port
+        } else if (authority.endsWith(':')) {
+            throw IllegalArgumentException("A port number is required after ':'.")
+        } else {
+            -1
+        }
         if (port != -1 && port !in 1..65535) {
             throw IllegalArgumentException("The port must be between 1 and 65535.")
         }
 
         val defaultPort = if (scheme == "https") 443 else 80
         val portSuffix = if (port == -1 || port == defaultPort) "" else ":$port"
-        val normalizedHost = normalizeHost(host)
+        val normalizedHost = normalizeHost(host, authority)
         val origin = "$scheme://$normalizedHost$portSuffix"
         val cleanInitialUrl = cleanFirstLoadUrl(uri, scheme, normalizedHost, portSuffix)
         val key = parameterValues(uri, KEY_PARAMETER).firstOrNull { it.isNotEmpty() }
@@ -189,10 +206,15 @@ internal object PanelAddress {
         }
     }
 
-    private fun normalizeHost(host: String): String {
+    private fun normalizeHost(host: String, authority: String): String {
         val withoutBrackets = host.removePrefix("[").removeSuffix("]")
-        val isIpv6 = host.startsWith('[') && host.endsWith(']') && withoutBrackets.contains(':')
+        val isIpv6 = withoutBrackets.contains(':')
         val normalized = if (isIpv6) {
+            if (!authority.startsWith('[') || !authority.endsWith(']') &&
+                !authority.substringAfter(']').startsWith(':')
+            ) {
+                throw IllegalArgumentException("IPv6 addresses must be enclosed in brackets.")
+            }
             val address = try {
                 Inet6Address.getByName(withoutBrackets)
             } catch (_: UnknownHostException) {
