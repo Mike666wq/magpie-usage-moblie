@@ -109,15 +109,15 @@ base64 < /secure/path/release.jks | pbcopy
 
 ## Tag 发布
 
-当前版本为 `0.1.0`。发布流程：
+当前版本为 `0.1.1`。发布流程：
 
 1. 更新 `app/build.gradle.kts` 的 `versionName`（如有需要也更新 `versionCode`）。
 2. 提交代码。
 3. 创建并推送语义化 tag，例如：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 CI 会读取 tag 和 Gradle 文件并校验：`vX.Y.Z` 必须映射到 `versionName = "X.Y.Z"`，且 checkout commit 必须与 tag 指向一致。此规则不硬编码旧 tag。
@@ -126,7 +126,7 @@ CI 会读取 tag 和 Gradle 文件并校验：`vX.Y.Z` 必须映射到 `versionN
 
 工作流：
 
-- `.github/workflows/android-check.yml`：推送 main 或 PR 时安装 JDK 17 / SDK 35，运行 `:app:testDebugUnitTest :app:assembleDebug`，并把 debug APK 作为 CI 验证产物上传 14 天。它不生成 Release。
+- `.github/workflows/android-check.yml`：推送 main 或 PR 时安装 JDK 17 / SDK 35，运行 `:app:lintDebug :app:testDebugUnitTest :app:assembleDebug`，并把 debug APK 作为 CI 验证产物上传 14 天。它不生成 Release。
 - `.github/workflows/android-release.yml`：`push` 匹配 `vX.Y.Z` tag 时自动运行。
 - `workflow_dispatch` 可手动输入一个**已存在**的 tag；校验仍要求该 tag 指向当前代码且 versionName 匹配。
 - 使用 `setup-java@v4` Temurin 17 和 GitHub runner 自带的 `/usr/local/lib/android/sdk`，通过其 `cmdline-tools/latest/bin/sdkmanager` 安装 `platforms;android-35` 和 `build-tools;35.0.0`；不再使用会安装废弃 `tools` 包的 `setup-android@v3`。

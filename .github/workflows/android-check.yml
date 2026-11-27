@@ -35,8 +35,8 @@ jobs:
       - name: Install Android SDK packages
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"'
 
-      - name: Run JVM tests and build debug APK
-        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug --stacktrace
+      - name: Run lint, JVM tests, and build debug APK
+        run: ./gradlew --no-daemon :app:lintDebug :app:testDebugUnitTest :app:assembleDebug --stacktrace
 
       - name: Upload debug APK for CI verification
         if: always()
