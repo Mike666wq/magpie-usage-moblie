@@ -93,7 +93,7 @@ internal class DefaultKeyStore(context: Context) {
     private fun getOrCreateKey(): SecretKey {
         val store = keyStore()
         (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
-        val generator = KeyGenerator.getInstance(KeyProperties.ALGORITHM, KEYSTORE_PROVIDER)
+        val generator = KeyGenerator.getInstance("AES", KEYSTORE_PROVIDER)
         generator.init(
             android.security.keystore.KeyGenParameterSpec.Builder(
                 KEY_ALIAS,
