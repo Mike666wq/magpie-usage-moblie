@@ -71,6 +71,8 @@ class PanelNavigationTest {
         assertTrue(restored.token.isEmpty())
         assertFalse(state.isCurrent(restored))
         assertFalse(state.isCurrent(old))
+        // A restored navigation has no live token. Reject both the old token
+        // and any attempt to accept against the empty restored token.
         assertNull(
             LoginKeyCapture.accept(
                 LoginKeyCapture.Capture(
@@ -80,7 +82,7 @@ class PanelNavigationTest {
                     back = "/?view=usage",
                 ),
                 expectedOrigin = old.origin,
-                expectedToken = old.token,
+                expectedToken = restored.token,
             ),
         )
     }
