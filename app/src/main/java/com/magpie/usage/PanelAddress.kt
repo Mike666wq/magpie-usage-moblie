@@ -215,13 +215,15 @@ internal object PanelAddress {
             ) {
                 throw IllegalArgumentException("IPv6 addresses must be enclosed in brackets.")
             }
-            val address = try {
+            try {
+                // Validate the literal, but keep the user's compressed form.
+                // Inet6Address.getHostAddress() expands 2001:db8::1 into eight
+                // groups, which would make equivalent origins compare unequal.
                 Inet6Address.getByName(withoutBrackets)
             } catch (_: UnknownHostException) {
                 throw IllegalArgumentException("Invalid IPv6 host.")
             }
-            address.hostAddress?.substringAfter('/')?.lowercase(Locale.ROOT)
-                ?: throw IllegalArgumentException("Invalid IPv6 host.")
+            withoutBrackets.lowercase(Locale.ROOT)
         } else {
             val ascii = try {
                 IDN.toASCII(withoutBrackets)
